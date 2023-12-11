@@ -1,0 +1,22 @@
+{% extends "base.html.jinja" %}
+{% block title %}History{% endblock %}
+{% block content %}
+    <table>
+        <thead>
+            <th>id</th>
+            <th>filename</th>
+            <th>status</th>
+            <th>uploaded</th>
+        </thead>
+        <tbody>
+            {% for rd in rawdatas %}
+                <tr>
+                    <td>{{rd.id}}</td>
+                    <td><a href="{{ url_for('analytics', rawdata_id=rd.id) }}">{{rd.filename}}</a></td>
+                    <td>{{rd.status}}</td>
+                    <td>{{rd.created_at}}</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+{% endblock %}

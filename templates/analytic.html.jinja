@@ -1,0 +1,31 @@
+{% from 'bootstrap5/form.html' import render_field %}
+
+{% extends "base.html.jinja" %}
+{% block title %}Analytic{% endblock %}
+{% block content %}
+    {{rd.id}} {{rd.filename}} {{rd.status}} {{rd.created_at}}
+    {% if rd.status == "Ready"%}
+        <form method="POST" action="/analytics/{{rd.id}}">
+            <input type="submit" value="Download">
+            {# {{form.bands}} #}
+            <table class="table">
+                <thead>
+                    <th>name</th>
+                    <th></th>
+                    <th></th>
+                </thead>
+                <tbody>
+                    {% for band in form %}
+                    {% if band.type != "CSRFTokenField"%}
+                        <tr>
+                            <td>{{band.label}}</td>
+                            <td>{{ render_field(band.profilePlot, role='switch') }}</td>
+                            <td>{{ render_field(band.colorMap) }}</td>
+                        </tr>
+                    {% endif %}
+                    {% endfor %}
+                </tbody>
+            </table>
+        </form>
+    {% endif %}
+{% endblock %}

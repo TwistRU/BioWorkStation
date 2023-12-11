@@ -1,0 +1,5 @@
+instance
+.idea
+.vscode
+__pycache__
+venv

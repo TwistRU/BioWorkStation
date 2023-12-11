@@ -1,0 +1,16 @@
+{% from 'bootstrap5/form.html' import render_form, render_field %}
+
+{% extends "base.html.jinja" %}
+{% block title %}Upload raw data{% endblock %}
+{% block content %}
+    <form class="row g-3" method="post" action="/" enctype="multipart/form-data">
+        {{ form.csrf_token }}
+        <div>
+            <label for="formFileLg" class="form-label">Файл формата .L2</label>
+            {{ render_field(form.file, label='') }}
+        </div>
+        <div>
+            <button type="submit" class="btn btn-primary mb-3">Загрузить</button>
+        </div>
+    </form>
+{% endblock %}

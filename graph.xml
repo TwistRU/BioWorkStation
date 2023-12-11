@@ -1,0 +1,87 @@
+<graph id="Graph">
+  <version>1.0</version>
+  <node id="Read">
+    <operator>Read</operator>
+    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+      <useAdvancedOptions>false</useAdvancedOptions>
+      <file>${ifile}</file>
+      <copyMetadata>true</copyMetadata>
+      <pixelRegion>0,0,2147483647,2147483647</pixelRegion>
+    </parameters>
+  </node>
+  <node id="BandMaths1">
+    <operator>BandMaths</operator>
+    <sources>
+      <sourceProduct refid="Reproject"/>
+    </sources>
+    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+      <targetBands>
+        <targetBand>
+          <name>hungry</name>
+          <type>float32</type>
+          <expression>flh/chl_oc3</expression>
+          <noDataValue>NaN</noDataValue>
+        </targetBand>
+      </targetBands>
+    </parameters>
+  </node>
+  <node id="BandMaths2">
+    <operator>BandMaths</operator>
+    <sources>
+      <sourceProduct refid="Reproject"/>
+    </sources>
+    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+      <targetBands>
+        <targetBand>
+          <name>karenia</name>
+          <type>float32</type>
+          <expression>((Rrs_555 * 76 + Rrs_412 * 67) / 143) / Rrs_488</expression>
+          <noDataValue>NaN</noDataValue>
+        </targetBand>
+      </targetBands>
+    </parameters>
+  </node>
+  <node id="Reproject">
+    <operator>Reproject</operator>
+    <sources>
+      <sourceProduct refid="Read"/>
+    </sources>
+    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+      <crs>GEOGCS[&quot;WGS84(DD)&quot;, 
+  DATUM[&quot;WGS84&quot;, 
+    SPHEROID[&quot;WGS84&quot;, 6378137.0, 298.257223563]], 
+  PRIMEM[&quot;Greenwich&quot;, 0.0], 
+  UNIT[&quot;degree&quot;, 0.017453292519943295], 
+  AXIS[&quot;Geodetic longitude&quot;, EAST], 
+  AXIS[&quot;Geodetic latitude&quot;, NORTH]]</crs>
+      <resampling>Nearest</resampling>
+      <orientation>0.0</orientation>
+      <pixelSizeX>0.001</pixelSizeX>
+      <pixelSizeY>0.001</pixelSizeY>
+      <orthorectify>false</orthorectify>
+      <noDataValue>NaN</noDataValue>
+      <includeTiePointGrids>true</includeTiePointGrids>
+      <addDeltaBands>false</addDeltaBands>
+      <applyValidPixelExpression>true</applyValidPixelExpression>
+      <retainValidPixelExpression>true</retainValidPixelExpression>
+    </parameters>
+  </node>
+  <node id="Merge">
+    <operator>Merge</operator>
+    <sources>
+      <masterProduct refid="Reproject"/>
+      <sourceProduct refid="BandMaths1"/>
+      <sourceProduct.1 refid="BandMaths2"/>
+    </sources>
+  </node>
+  <node id="Write">
+    <operator>Write</operator>
+    <sources>
+      <sourceProduct refid="Merge"/>
+    </sources>
+    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+      <file>${ofile}</file>
+      <formatName>BEAM-DIMAP</formatName>
+    </parameters>
+  </node>
+</graph>

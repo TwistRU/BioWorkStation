@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}{% endblock %}</title>
+    {{ bootstrap.load_css() }}
+    <style>https://cdn.jsdelivr.net/npm/bootswatch@5.3.2/dist/cerulean/bootstrap.min.css</style>
+</head>
+<body>
+    {% include "header.html.jinja" %}
+    <div class="container-fluid">{% block content %}{% endblock %}</div>
+    {{ bootstrap.load_js() }}
+</body>
+</html>
