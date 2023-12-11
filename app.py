@@ -239,6 +239,10 @@ def analytics_history():
     rawdatas = RawData.query.all()
     return render_template('analyticsHistory.html.jinja', rawdatas=rawdatas)
 
+@app.route('/instruction')
+def instruction():
+    return render_template('instruction.html.jinja')
+
 def process_request(form, dim: Dim):
     with tempfile.TemporaryDirectory() as tmpdirname:
         files = []
