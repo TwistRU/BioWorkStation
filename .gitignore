@@ -3,3 +3,4 @@ instance
 .vscode
 __pycache__
 venv
+app.db
