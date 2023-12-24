@@ -7,13 +7,14 @@ from sqlalchemy import TIMESTAMP, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from werkzeug.utils import secure_filename
 from wtforms.csrf.core import CSRFTokenField
-from wtforms import BooleanField, FormField
+from wtforms import BooleanField, FormField, FloatField
 from spectral import *
 from math import floor
 from xml.dom import minidom
 from zipfile import ZipFile
 import os
 import tempfile
+import json
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 import numpy as np
@@ -55,13 +56,38 @@ class RawDataFileForm(FlaskForm):
 class BandParamForm(FlaskForm):
     profilePlot = BooleanField()
     colorMap = BooleanField()
+    minVal = FloatField()
+    maxVal = FloatField()
 
-def AnalysParamForm_from_builder(band_names=[]):
-    class AnalysParamForm(FlaskForm):
+class CoordsParamForm(FlaskForm):
+    sLong   = FloatField()
+    sLat    = FloatField()
+    eLong   = FloatField()
+    eLat    = FloatField()
+
+def AnalysParamForm_from_builder(bands_info={}):
+    coords_info = bands_info['coords']
+    class BandsForm(FlaskForm):
         pass
-    for name in band_names:
-        setattr(AnalysParamForm, name, FormField(BandParamForm, label=name))
 
+    for name, info in bands_info['bands'].items():
+        setattr(BandsForm, name,
+            FormField(
+                BandParamForm,
+                default={'minVal':info['min'], 'maxVal':info['max']},
+                label=name)
+                )
+        
+    class AnalysParamForm(FlaskForm):
+        file = FileField()
+        bands = BandsForm()
+        coords = FormField(CoordsParamForm, default={
+            'sLong': coords_info['sLong'],
+            'sLat':coords_info['sLat'],
+            'eLong':coords_info['eLong'],
+            'eLat':coords_info['eLat']
+            })
+        
     return AnalysParamForm()
 
 # Models
@@ -70,7 +96,8 @@ class RawData(db.Model):
     filename: Mapped[str] = mapped_column(db.String, unique=True, nullable=False)
     status: Mapped[str] = mapped_column(db.String, default="Not processed")
     created_at: Mapped[TIMESTAMP] = mapped_column(db.DateTime, default=func.now())
-    dim_path: Mapped[str] = mapped_column(db.String,default="", nullable=True)
+    dim_path: Mapped[str] = mapped_column(db.String, default="", nullable=True)
+    info:Mapped[str] = mapped_column(db.Text, default="{}", nullable=True)
 
     def __repr__(self):
         return f"id:{self.id} filename:{self.filename}"
@@ -81,6 +108,7 @@ class Band:
         self.lib = envi.open(path)
         metadata = self.lib.metadata
         info = metadata['map info']
+        self.shape = (int(metadata['lines']), int(metadata['samples']))
         self.path = path
         self.name = metadata['band names'][0]
         self.description = metadata['description']
@@ -97,23 +125,34 @@ class Band:
             self.band = self.lib.read_band(0)
         return self.band
 
-    def get_pixel(self, coord):
-        return (round((self.startLat - coord[0])/self.eps), round((coord[1] - self.startLong)/self.eps))
-        
-    def profile_plot(self, dir, pix_exp_data=[]):
+    def get_coords(self):
+        ans = dict()
+        ans['sLong'] = self.startLong
+        ans['sLat'] = self.startLat
+        ans['eLong'] = self.centerLong + self.centerX * self.eps
+        ans['eLat'] = self.centerLati - self.centerY * self.eps
+        return ans
+
+    def get_info(self):
         band = self.read_band_data()
-        exp_data = [
-            [43.1043166666667, 131.833416666667],
-            [43.1071666666667, 131.814583333333],
-            [43.1098666666667, 131.796050000000],
-            [43.1121333333333, 131.777083333333],
-            [43.1149666666667, 131.758516666667],
-            [43.1174500000000, 131.740433333333],
-            [43.1198833333333, 131.721733333333],
-            [43.1223166666667, 131.703883333333],
-            [43.0927500000000, 131.714833333333],
-            [43.0779166666667, 131.730583333333]
-            ]
+        des = pd.DataFrame(band.reshape(-1), dtype=np.float64).describe()
+        ans = des[0].to_dict()
+        return ans
+
+    def get_pixel(self, coord):
+        return (
+                min(
+                    self.shape[0],
+                    max(0, round((self.startLat - coord[0]) / self.eps))
+                    ),
+                min(
+                    self.shape[1],
+                    max(0, round((coord[1] - self.startLong) / self.eps))
+                    )
+                )
+        
+    def profile_plot(self, dir, exp_data=[]):
+        band = self.read_band_data()
         pix_exp_data = list(map(self.get_pixel, exp_data))
         start = pix_exp_data[0]
         end = pix_exp_data[1]
@@ -143,11 +182,11 @@ class Band:
         plt.close()
         return f
 
-    def color_map(self, dir):
+    def color_map(self, dir, bounds, coords):
         band = self.read_band_data()
         fig, ax = plt.subplots()
-        up, down = 600, 1500
-        left, right = 1800, 2500
+        down, left = self.get_pixel((coords['eLat'], coords['sLong']))
+        up, right = self.get_pixel((coords['sLat'], coords['eLong']))
         step = 100
         width, height = band.shape
         des = pd.DataFrame(band[up:down, left:right].reshape(-1), dtype=np.float64).describe()
@@ -156,16 +195,20 @@ class Band:
         yticks = list(range(0, down - up + 1, step))
         ytickLabels = list(map(lambda x: self.startLat - (up + x) * self.eps, yticks))
         ax.set_yticks(yticks)
-        ax.set_yticklabels(list(map(lambda x: f"{int(x)}°{round((x - np.floor(x)) * 60, 4)}′", ytickLabels)))
+        ax.set_yticklabels(list(map(lambda x: f"{round(x, 2)}", ytickLabels)))
         # X
         xticks = list(range(0, right - left + 1, step))
         xtickLabels = list(map(lambda x: self.startLong + (left + x) * self.eps, xticks))
         ax.set_xticks(xticks)
-        ax.set_xticklabels(list(map(lambda x: f"{int(x)}°{round((x - np.floor(x)) * 60, 4)}′", xtickLabels)), rotation=45, ha='right')
+        ax.set_xticklabels(list(map(lambda x: f"{round(x, 2)}", xtickLabels)), rotation=45, ha='right')
         # SHOW
         color_map = mpl.colormaps['jet']
-        vmin = des[0]['mean'] - 3 * des[0]['std']
-        vmax = des[0]['mean'] + 3 * des[0]['std']
+        if bounds is None:
+            vmin = des[0]['mean'] - 3 * des[0]['std']
+            vmax = des[0]['mean'] + 3 * des[0]['std']
+        else:
+            vmin = bounds[0]
+            vmax = bounds[1]
         band_show = ax.imshow(band[up:down, left:right], cmap=color_map, vmin=vmin, vmax=vmax)
         fig.colorbar(band_show)
         file_format = 'pdf'
@@ -187,6 +230,12 @@ class Dim:
             bands.append(Band(os.path.join(dirname,bands_path)))
         self.bands = {band.name:band for band in bands}
     
+    def get_bands_info(self):
+        ans = dict()
+        ans['bands'] = {name:band.get_info() for name, band in self.bands.items()}
+        ans['coords'] = list(self.bands.values())[0].get_coords()
+        return ans
+
     def get_band_names(self):
         return list(self.bands.keys())[::-1]
     
@@ -225,14 +274,11 @@ def analytics(rawdata_id=None):
     if rawdata_id is None:
         return redirect(url_for('analytics_history'))
     rd = db.get_or_404(RawData, rawdata_id)
-    band_names = []
-    if rd.status == "Ready":
-        dim = Dim(rd.dim_path)
-        band_names = dim.get_band_names()
-    form = AnalysParamForm_from_builder(band_names)
+    info = json.loads(rd.info)
+    form = AnalysParamForm_from_builder(info)
     if form.is_submitted():
-        return process_request(form, dim)
-    return render_template('analytic.html.jinja', rd=rd, form=form, band_names=band_names)
+        return process_request(form, rd)
+    return render_template('analytic.html.jinja', rd=rd, form=form, band_names=list(info.keys()))
 
 @app.route('/history')
 def analytics_history():
@@ -243,20 +289,30 @@ def analytics_history():
 def instruction():
     return render_template('instruction.html.jinja')
 
-def process_request(form, dim: Dim):
+def process_request(form, rd: RawData):
+    dim = Dim(rd.dim_path)
     with tempfile.TemporaryDirectory() as tmpdirname:
+        exp_data_file = form.file.data
+        to_profile = None
+        if exp_data_file is not None:
+            sec_filename = secure_filename(exp_data_file.filename)
+            exp_data_file.save(os.path.join(tmpdirname, sec_filename))
+            exp_data = exp_data_file.getvalue().decode()
+            exp = list(map(lambda x: x.split(), exp_data.split('\n')))
+            exp = list(map(lambda x: list(map(float, x)), list(sorted(exp[:-1], key=lambda x: int(x[2])))))
+            to_profile = list(map(lambda x: x[:2], exp))
         files = []
-        for band_form in form:
-            if isinstance(band_form, CSRFTokenField):
+        for band_form in form.bands:
+            if isinstance(band_form, CSRFTokenField) or isinstance(band_form, FileField):
                 continue
             name = band_form.name
             data = band_form.data
             if data['colorMap'] or data['profilePlot']:
                 band = dim.get_band(name)
             if data['colorMap']:
-                files.append(band.color_map(tmpdirname))
-            if data['profilePlot']:
-                files.append(band.profile_plot(tmpdirname))
+                files.append(band.color_map(tmpdirname, (data['minVal'], data['maxVal']), form.coords.data))
+            if data['profilePlot'] and to_profile is not None:
+                files.append(band.profile_plot(tmpdirname, to_profile))
         zip_path = f'{os.path.join(tmpdirname, str(datetime.datetime.now()))}.zip'
         with ZipFile(zip_path, 'w') as myzip:
             for f in files:
@@ -315,17 +371,21 @@ def compute_gpt(db, rd):
         _basedir, "instance/raw_data", str(rd.id), rd.filename+".dim"
         )
     graph_path = os.path.join(_basedir, "graph.xml")
+    print('Start subprocess')
     process = subprocess.run(
         [GPT_PATH,
           f"{graph_path}",
             f"-Pifile={ifile_path}",
               f"-Pofile={ofile_path}",],
                 capture_output=True)
+    # print(process, process.stderr, process.stdout)
     if "Error" in str(process.stderr):
         rd.status = "Error GPT"
         return
     if "done" in str(process.stdout):
+        rd.info = json.dumps(Dim(ofile_path).get_bands_info())
         rd.status = "Ready"
+        print("Subprocess done successfully")
     else:
         print(process.stdout, process.stderr, sep='\n')
         rd.status = "Error while processing"

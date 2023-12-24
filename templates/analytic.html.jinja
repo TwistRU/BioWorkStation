@@ -1,26 +1,56 @@
-{% from 'bootstrap5/form.html' import render_field %}
+{% from 'bootstrap5/form.html' import render_field, render_form %}
 
 {% extends "base.html.jinja" %}
 {% block title %}Analytic{% endblock %}
 {% block content %}
-    {{rd.id}} {{rd.filename}} {{rd.status}} {{rd.created_at}}
+    Id: {{rd.id}}<br>
+    File name: {{rd.filename}}<br>
+    Status: {{rd.status}}<br>
+    Created at: {{rd.created_at}}<br>
     {% if rd.status == "Ready"%}
-        <form method="POST" action="/analytics/{{rd.id}}">
-            <input type="submit" value="Download">
-            {# {{form.bands}} #}
+        <form method="POST" action="/analytics/{{rd.id}}" class="row g-3" enctype="multipart/form-data">
+            {{ form.hidden_tag() }}
+            <button type="submit" class="btn btn-primary mb-3">Обработать</button>
+            <div >
+                <label for="formFile" class="form-label">Выберите файл данных с коорданатами экспедиции. Пример файла можно посмотреть на <a href="{{ url_for('instruction') }}">странице инструкции</a></label>
+                {{ render_field(form.file, class="form-control", id="formFile") }}   
+            </div>
             <table class="table">
+                <tbody>
+                 <tr>
+                    <td></td>
+                    <td>{{ render_field(form.coords.sLat)}}</td>
+                    <td></td>
+                 </tr>
+                 <tr>
+                    <td>{{ render_field(form.coords.sLong)}}</td>
+                    <td></td>
+                    <td>{{ render_field(form.coords.eLong)}}</td>
+                 </tr>
+                 <tr>
+                    <td></td>
+                    <td>{{ render_field(form.coords.eLat)}}</td>
+                    <td></td>
+                 </tr>
+                </tbody>
+            </table>
+            <table class="table table-striped">
                 <thead>
-                    <th>name</th>
-                    <th></th>
-                    <th></th>
+                    <th>Название</th>
+                    <th>Минимум</th>
+                    <th>Максимум</th>
+                    <th>Опция 1</th>
+                    <th>Опция 2</th>
                 </thead>
                 <tbody>
-                    {% for band in form %}
-                    {% if band.type != "CSRFTokenField"%}
+                    {% for band in form.bands %}
+                    {% if band.type != "CSRFTokenField" and band.type != "FileField" and band.type != ''%}
                         <tr>
-                            <td>{{band.label}}</td>
-                            <td>{{ render_field(band.profilePlot, role='switch') }}</td>
-                            <td>{{ render_field(band.colorMap) }}</td>
+                            <td>{{ band.label }}</td>
+                            <td>{{ render_field(band.minVal, form_type='inline') }}</td>
+                            <td>{{ render_field(band.maxVal, form_type='inline') }}</td>
+                            <td>{{ render_field(band.profilePlot, form_type='inline') }}</td>
+                            <td>{{ render_field(band.colorMap, form_type='inline' ) }}</td>
                         </tr>
                     {% endif %}
                     {% endfor %}
