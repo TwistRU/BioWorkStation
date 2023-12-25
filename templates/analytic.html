@@ -1,6 +1,6 @@
 {% from 'bootstrap5/form.html' import render_field, render_form %}
 
-{% extends "base.html.jinja" %}
+{% extends "base.html" %}
 {% block title %}Analytic{% endblock %}
 {% block content %}
     Id: {{rd.id}}<br>
@@ -36,6 +36,7 @@
             </table>
             <table class="table table-striped">
                 <thead>
+                    <th>#</th>
                     <th>Название</th>
                     <th>Минимум</th>
                     <th>Максимум</th>
@@ -46,16 +47,26 @@
                     {% for band in form.bands %}
                     {% if band.type != "CSRFTokenField" and band.type != "FileField" and band.type != ''%}
                         <tr>
+                            <td><button class="btn btn-primary collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#item-{{ band.label.text }}" aria-expanded="false" aria-controls="item-{{ band.label.text }}">+</button></td>
                             <td>{{ band.label }}</td>
                             <td>{{ render_field(band.minVal, form_type='inline') }}</td>
                             <td>{{ render_field(band.maxVal, form_type='inline') }}</td>
                             <td>{{ render_field(band.profilePlot, form_type='inline') }}</td>
                             <td>{{ render_field(band.colorMap, form_type='inline' ) }}</td>
                         </tr>
+                        <tr class="collapse" id="item-{{ band.label.text }}">
+                            <td colspan="2">test</td>
+                            
+                        </tr>
                     {% endif %}
                     {% endfor %}
                 </tbody>
             </table>
         </form>
+        <script>
+            a = 123;
+            console.log($('collapse'));
+        </script>
     {% endif %}
+    
 {% endblock %}

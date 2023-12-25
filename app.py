@@ -1,4 +1,5 @@
-from flask import render_template, Flask, redirect, url_for, send_file
+import csv
+from flask import render_template, Flask, redirect, url_for, send_file, request
 from flask_wtf import FlaskForm
 from flask_wtf.file import FileField, FileRequired
 from flask_sqlalchemy import SQLAlchemy
@@ -55,7 +56,7 @@ class RawDataFileForm(FlaskForm):
 
 class BandParamForm(FlaskForm):
     profilePlot = BooleanField()
-    colorMap = BooleanField()
+    colorMap = BooleanField(label='Map')
     minVal = FloatField()
     maxVal = FloatField()
 
@@ -104,7 +105,8 @@ class RawData(db.Model):
     
 #Compute classes
 class Band:
-    def __init__(self, path):
+    def __init__(self, path, dim):
+        self.dim = dim
         self.lib = envi.open(path)
         metadata = self.lib.metadata
         info = metadata['map info']
@@ -141,40 +143,29 @@ class Band:
 
     def get_pixel(self, coord):
         return (
-                min(
-                    self.shape[0],
-                    max(0, round((self.startLat - coord[0]) / self.eps))
-                    ),
-                min(
-                    self.shape[1],
-                    max(0, round((coord[1] - self.startLong) / self.eps))
-                    )
+                min(self.shape[0], max(0, round((self.startLat - coord[0]) / self.eps))),
+                min(self.shape[1], max(0, round((coord[1] - self.startLong) / self.eps)))
                 )
-        
-    def profile_plot(self, dir, exp_data=[]):
-        band = self.read_band_data()
-        pix_exp_data = list(map(self.get_pixel, exp_data))
-        start = pix_exp_data[0]
-        end = pix_exp_data[1]
-        points = get_path(start, end)
-        scatter_points = [0, len(points) - 1]
-        start = pix_exp_data[1]
-        for i in range(2, len(pix_exp_data)):
-            end = pix_exp_data[i]
-            points = points[:-1]
-            points.extend(get_path(start, end))
-            scatter_points.append(len(points) - 1)
-            start = pix_exp_data[i]
+    
+    def get_coord(self, pixel):
+        coords = self.get_coords()
+        return (
+                min(self.startLat, max(coords['eLat'], coords['sLat'] - pixel[0] * self.eps)),
+                max(self.startLong, min(coords['eLong'], coords['sLong'] + pixel[1] * self.eps))
+                )
 
-        profile = list(map(lambda p: band[p[0],p[1]], points))
-        scatter = list(map(lambda p: band[p[0],p[1]], pix_exp_data))
-
+    def _profile_plot_pdf(self, scatter_points, profile, dir):
         fig, ax = plt.subplots()
         ax.plot(range(len(profile)), profile)
-        ax.scatter(scatter_points, scatter, color="red")
-        for i in range(len(scatter)):
+        ax.scatter(sorted(list(scatter_points.keys())), [scatter_points[i][1] for i in sorted(list(scatter_points.keys()))], color="red")
+        for i, v in enumerate(scatter_points.items()):
             ax.annotate(f"{i+1}", 
-                        xy=(scatter_points[i], scatter[i]), xycoords='data', xytext=(0, 10), textcoords="offset points")
+                        xy=(v[0],
+                            v[1][1]),
+                        xycoords='data',
+                        xytext=(0, 10),
+                        textcoords="offset points")
+        ax.set_title(self.name+"\n"+self.dim.time)
         file_format = 'pdf'
         path = os.path.join(dir, self.name)
         f = f"{path}_PP.{file_format}"
@@ -182,7 +173,47 @@ class Band:
         plt.close()
         return f
 
-    def color_map(self, dir, bounds, coords):
+    def _profile_plot_txt(self, scatter_points, coords_points, profile, dir):
+        f = os.path.join(dir, f'{self.name}.csv')
+        with open(f, 'w') as file:
+            writer = csv.writer(file)
+            j = 1
+            for i in range(len(profile)):
+                if scatter_points.get(i, None) is None:
+                    row = [i, *coords_points[i], profile[i]]
+                else:
+                    row = [i, *scatter_points[i][0], scatter_points[i][1], j]
+                    j += 1
+                writer.writerow(row)
+        return f
+    
+    def profile_plot(self, dir, exp_data=[]):
+        band = self.read_band_data()
+        pix_exp_data = list(map(self.get_pixel, exp_data))
+        start = pix_exp_data[0]
+        end = pix_exp_data[1]
+        points = get_path(start, end)
+        scatter_points = dict()
+        scatter_points[0] = [exp_data[0], band[pix_exp_data[0][0], pix_exp_data[0][1]]]
+        scatter_points[len(points) - 1] = [exp_data[1], band[pix_exp_data[1][0], pix_exp_data[1][1]]]
+        
+        start = pix_exp_data[1]
+        for i in range(2, len(pix_exp_data)):
+            end = pix_exp_data[i]
+            points = points[:-1]
+            points.extend(get_path(start, end))
+            scatter_points[len(points) - 1] = [exp_data[i], band[pix_exp_data[i][0], pix_exp_data[i][1]]]
+            start = pix_exp_data[i]
+        coords_points = list(map(self.get_coord, points))
+        
+        profile = list(map(lambda p: band[p[0],p[1]], points))
+
+        f = [self._profile_plot_txt(scatter_points, coords_points, profile, dir),
+             self._profile_plot_pdf(scatter_points, profile, dir)]
+        return f
+
+    def color_map(self, dir, bounds, coords, exp_data):
+        pix_exp_data = list(map(self.get_pixel, exp_data))
         band = self.read_band_data()
         fig, ax = plt.subplots()
         down, left = self.get_pixel((coords['eLat'], coords['sLong']))
@@ -210,7 +241,19 @@ class Band:
             vmin = bounds[0]
             vmax = bounds[1]
         band_show = ax.imshow(band[up:down, left:right], cmap=color_map, vmin=vmin, vmax=vmax)
+        text_size = 10
+        if pix_exp_data is not None:
+            for i, point in enumerate(pix_exp_data):
+                ax.annotate(
+                    f'{i + 1}',
+                    xy=(point[1] - left, point[0] - up),
+                    ha='center',
+                    va='bottom',
+                    size=text_size
+                )
+                ax.plot(point[1] - left, point[0] - up, 'o', markersize=3, color='black')
         fig.colorbar(band_show)
+        ax.set_title(self.name+"\n"+self.dim.time)
         file_format = 'pdf'
         path = os.path.join(dir, self.name)
         f = f"{path}_CM.{file_format}"
@@ -223,11 +266,12 @@ class Dim:
         with open(path) as f:
             data = minidom.parse(f)
         bands_path_elems = data.getElementsByTagName('DATA_FILE_PATH')
+        self.time = data.getElementsByTagName('PRODUCT_SCENE_RASTER_START_TIME')[0].firstChild.nodeValue
         bands_paths = list(map(lambda x: x.attributes['href'].value, bands_path_elems))
         bands = []
         dirname = os.path.dirname(path)
         for bands_path in bands_paths:
-            bands.append(Band(os.path.join(dirname,bands_path)))
+            bands.append(Band(os.path.join(dirname,bands_path), self))
         self.bands = {band.name:band for band in bands}
     
     def get_bands_info(self):
@@ -266,8 +310,14 @@ def uploadRawFile():
         if rd.status != "Ready":
             compute_gpt(db, rd)
         return redirect(url_for('analytics', rawdata_id=rd.id))
-    return render_template('uploadData.html.jinja', form=form)
+    return render_template('uploadData.html', form=form)
 
+@app.route('/analytics/<int:rawdata_id>/<string:band_name>', methods=['GET'])
+def get_pre_image(rawdata_id, band_name):
+    rd = db.get_or_404(RawData, rawdata_id)
+    dim = Dim(rd.dim_path)
+    band = dim.get_band(band_name)
+    return f"{rawdata_id}, {band_name}, {band.centerLati}"
 
 @app.route('/analytics/<int:rawdata_id>', methods=['POST', 'GET'])
 def analytics(rawdata_id=None):
@@ -278,16 +328,16 @@ def analytics(rawdata_id=None):
     form = AnalysParamForm_from_builder(info)
     if form.is_submitted():
         return process_request(form, rd)
-    return render_template('analytic.html.jinja', rd=rd, form=form, band_names=list(info.keys()))
+    return render_template('analytic.html', rd=rd, form=form, band_names=list(info.keys()))
 
 @app.route('/history')
 def analytics_history():
     rawdatas = RawData.query.all()
-    return render_template('analyticsHistory.html.jinja', rawdatas=rawdatas)
+    return render_template('analyticsHistory.html', rawdatas=rawdatas)
 
 @app.route('/instruction')
 def instruction():
-    return render_template('instruction.html.jinja')
+    return render_template('instruction.html')
 
 def process_request(form, rd: RawData):
     dim = Dim(rd.dim_path)
@@ -310,9 +360,9 @@ def process_request(form, rd: RawData):
             if data['colorMap'] or data['profilePlot']:
                 band = dim.get_band(name)
             if data['colorMap']:
-                files.append(band.color_map(tmpdirname, (data['minVal'], data['maxVal']), form.coords.data))
+                files.append(band.color_map(tmpdirname, (data['minVal'], data['maxVal']), form.coords.data, to_profile))
             if data['profilePlot'] and to_profile is not None:
-                files.append(band.profile_plot(tmpdirname, to_profile))
+                files.extend(band.profile_plot(tmpdirname, to_profile))
         zip_path = f'{os.path.join(tmpdirname, str(datetime.datetime.now()))}.zip'
         with ZipFile(zip_path, 'w') as myzip:
             for f in files:

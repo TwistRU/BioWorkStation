@@ -6,10 +6,11 @@
     <title>{% block title %}{% endblock %}</title>
     {{ bootstrap.load_css() }}
     <style>https://cdn.jsdelivr.net/npm/bootswatch@5.3.2/dist/cerulean/bootstrap.min.css</style>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
 </head>
 <body>
     Рабочее место океанолога - Морская экспедиция(Обработка спутниковых данных в SeaDAS)
-    {% include "header.html.jinja" %}
+    {% include "header.html" %}
     <div class="container-fluid">{% block content %}{% endblock %}</div>
     {{ bootstrap.load_js() }}
 </body>
