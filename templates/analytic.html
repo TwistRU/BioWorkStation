@@ -10,7 +10,7 @@
     {% if rd.status == "Ready"%}
         <form method="POST" action="/analytics/{{rd.id}}" class="row g-3" enctype="multipart/form-data">
             {{ form.hidden_tag() }}
-            <button type="submit" class="btn btn-primary mb-3">Обработать</button>
+            <button type="submit" class="btn btn-primary mb-3">Скачать</button>
             <div >
                 <label for="formFile" class="form-label">Выберите файл данных с коорданатами экспедиции. Пример файла можно посмотреть на <a href="{{ url_for('instruction') }}">странице инструкции</a></label>
                 {{ render_field(form.file, class="form-control", id="formFile") }}   
@@ -55,7 +55,9 @@
                             <td>{{ render_field(band.colorMap, form_type='inline' ) }}</td>
                         </tr>
                         <tr class="collapse" id="item-{{ band.label.text }}">
-                            <td colspan="2">test</td>
+                            <td ><button class='Update' id="{{ band.label.text }}" type=button>Update</button></td>
+                            <td colspan="2"><img id="img1-{{ band.label.text }}"/></td>
+                            <td colspan="2"><img id="img2-{{ band.label.text }}"/></td>
                             
                         </tr>
                     {% endif %}
@@ -64,8 +66,28 @@
             </table>
         </form>
         <script>
-            a = 123;
-            console.log($('collapse'));
+            $("td .Update").on("click", updateImg);
+            function updateImg(event){
+                btn = event.target;
+                id = btn.id;
+                document.getElementById('img1-'+id).src = get_preview(id, 'hist');
+                document.getElementById('img2-'+id).src = get_preview(id, 'cm');
+            };
+            function get_preview(id, type){
+                data = {'type':type};
+                data['minVal'] = document.getElementById(id+"-minVal").value;
+                data['maxVal'] = document.getElementById(id+"-maxVal").value;
+                coords = ['sLat', 'sLong', 'eLong', 'eLat'];
+                for (var key in coords){
+                    data[coords[key]] = document.getElementById('coords-'+coords[key]).value;
+                }
+                url = new URL(window.location.href);
+                url.pathname = url.pathname+'/'+id;
+                for (var key in data){
+                    url.searchParams.set(key, data[key]);
+                }
+                return url
+            }
         </script>
     {% endif %}
     

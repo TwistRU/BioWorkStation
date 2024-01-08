@@ -13,6 +13,8 @@ from spectral import *
 from math import floor
 from xml.dom import minidom
 from zipfile import ZipFile
+from matplotlib.ticker import PercentFormatter
+from io import BytesIO
 import os
 import tempfile
 import json
@@ -61,10 +63,10 @@ class BandParamForm(FlaskForm):
     maxVal = FloatField()
 
 class CoordsParamForm(FlaskForm):
-    sLong   = FloatField()
-    sLat    = FloatField()
-    eLong   = FloatField()
-    eLat    = FloatField()
+    sLong   = FloatField(label='Долгота')
+    sLat    = FloatField(label='Широта')
+    eLong   = FloatField(label='Долгота')
+    eLat    = FloatField(label='Широта')
 
 def AnalysParamForm_from_builder(bands_info={}):
     coords_info = bands_info['coords']
@@ -212,14 +214,12 @@ class Band:
              self._profile_plot_pdf(scatter_points, profile, dir)]
         return f
 
-    def color_map(self, dir, bounds, coords, exp_data):
-        pix_exp_data = list(map(self.get_pixel, exp_data))
+    def color_map(self, bounds, coords, exp_data):
         band = self.read_band_data()
         fig, ax = plt.subplots()
         down, left = self.get_pixel((coords['eLat'], coords['sLong']))
         up, right = self.get_pixel((coords['sLat'], coords['eLong']))
-        step = 100
-        width, height = band.shape
+        step = (down - up) // 10
         des = pd.DataFrame(band[up:down, left:right].reshape(-1), dtype=np.float64).describe()
         ax.grid(True)
         # Y
@@ -242,7 +242,8 @@ class Band:
             vmax = bounds[1]
         band_show = ax.imshow(band[up:down, left:right], cmap=color_map, vmin=vmin, vmax=vmax)
         text_size = 10
-        if pix_exp_data is not None:
+        if exp_data is not None:
+            pix_exp_data = list(map(self.get_pixel, exp_data))
             for i, point in enumerate(pix_exp_data):
                 ax.annotate(
                     f'{i + 1}',
@@ -254,12 +255,43 @@ class Band:
                 ax.plot(point[1] - left, point[0] - up, 'o', markersize=3, color='black')
         fig.colorbar(band_show)
         ax.set_title(self.name+"\n"+self.dim.time)
+        return fig
+    
+    def get_color_map(self, dir, bounds, coords, exp_data):
+        fig = self.color_map(bounds, coords, exp_data)
         file_format = 'pdf'
         path = os.path.join(dir, self.name)
         f = f"{path}_CM.{file_format}"
         fig.savefig(f, format=file_format)
-        plt.close()
+        plt.close(fig)
         return f
+    
+    def get_preview_color_map(self):
+        bounds = [float(request.args.get('minVal')), float(request.args.get('maxVal'))]
+        coords = {}
+        for i in ['sLat', 'sLong', 'eLat', 'eLong']:
+            coords[i] = float(request.args.get(i))
+        fig = self.color_map(bounds, coords, None)
+        buf = BytesIO()
+        fig.savefig(buf, format='png')
+        plt.close(fig)
+        buf.seek(0)
+        return buf
+    
+    def get_preview_hist(self):
+        ban = self.read_band_data().reshape(-1)
+        h_max = float(request.args.get('maxVal'))
+        h_min = float(request.args.get('minVal'))
+        h_ban = ban[(~np.isnan(ban)) & (ban <= h_max) & (ban >= h_min)]
+        fig, ax = plt.subplots()
+        ax.hist(h_ban, bins=100)
+        # plt.yscale('log')
+        fig.gca().yaxis.set_major_formatter(PercentFormatter(h_ban.shape[0]))
+        buf = BytesIO()
+        fig.savefig(buf, format='png')
+        plt.close(fig)
+        buf.seek(0)
+        return buf
         
 class Dim:
     def __init__(self, path):
@@ -313,11 +345,15 @@ def uploadRawFile():
     return render_template('uploadData.html', form=form)
 
 @app.route('/analytics/<int:rawdata_id>/<string:band_name>', methods=['GET'])
-def get_pre_image(rawdata_id, band_name):
+def get_preview_image(rawdata_id, band_name):
     rd = db.get_or_404(RawData, rawdata_id)
     dim = Dim(rd.dim_path)
     band = dim.get_band(band_name)
-    return f"{rawdata_id}, {band_name}, {band.centerLati}"
+    if request.args.get('type') == 'hist':
+        buf = band.get_preview_hist()
+    elif request.args.get('type') == 'cm':
+        buf = band.get_preview_color_map()
+    return send_file(buf, mimetype='image/PNG')
 
 @app.route('/analytics/<int:rawdata_id>', methods=['POST', 'GET'])
 def analytics(rawdata_id=None):
@@ -360,7 +396,7 @@ def process_request(form, rd: RawData):
             if data['colorMap'] or data['profilePlot']:
                 band = dim.get_band(name)
             if data['colorMap']:
-                files.append(band.color_map(tmpdirname, (data['minVal'], data['maxVal']), form.coords.data, to_profile))
+                files.append(band.get_color_map(tmpdirname, (data['minVal'], data['maxVal']), form.coords.data, to_profile))
             if data['profilePlot'] and to_profile is not None:
                 files.extend(band.profile_plot(tmpdirname, to_profile))
         zip_path = f'{os.path.join(tmpdirname, str(datetime.datetime.now()))}.zip'
