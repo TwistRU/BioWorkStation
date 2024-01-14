@@ -219,16 +219,17 @@ class Band:
         fig, ax = plt.subplots()
         down, left = self.get_pixel((coords['eLat'], coords['sLong']))
         up, right = self.get_pixel((coords['sLat'], coords['eLong']))
-        step = (down - up) // 10
+        step_ver = (down - up) // 10
+        step_hor = (right - left) // 10
         des = pd.DataFrame(band[up:down, left:right].reshape(-1), dtype=np.float64).describe()
         ax.grid(True)
         # Y
-        yticks = list(range(0, down - up + 1, step))
+        yticks = list(range(0, down - up + 1, step_ver))
         ytickLabels = list(map(lambda x: self.startLat - (up + x) * self.eps, yticks))
         ax.set_yticks(yticks)
         ax.set_yticklabels(list(map(lambda x: f"{round(x, 2)}", ytickLabels)))
         # X
-        xticks = list(range(0, right - left + 1, step))
+        xticks = list(range(0, right - left + 1, step_hor))
         xtickLabels = list(map(lambda x: self.startLong + (left + x) * self.eps, xticks))
         ax.set_xticks(xticks)
         ax.set_xticklabels(list(map(lambda x: f"{round(x, 2)}", xtickLabels)), rotation=45, ha='right')
