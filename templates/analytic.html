@@ -6,7 +6,7 @@
     Id: {{rd.id}}<br>
     File name: {{rd.filename}}<br>
     Status: {{rd.status}}<br>
-    Created at: {{rd.created_at}}<br>
+    Started at: {{rd.created_at}}<br>
     {% if rd.status == "Ready"%}
         <form method="POST" action="/analytics/{{rd.id}}" class="row g-3" enctype="multipart/form-data">
             {{ form.hidden_tag() }}

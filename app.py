@@ -63,10 +63,10 @@ class BandParamForm(FlaskForm):
     maxVal = FloatField()
 
 class CoordsParamForm(FlaskForm):
-    sLong   = FloatField(label='Долгота')
-    sLat    = FloatField(label='Широта')
-    eLong   = FloatField(label='Долгота')
-    eLat    = FloatField(label='Широта')
+    sLong   = FloatField(label='Долгота-Запад')
+    sLat    = FloatField(label='Широта-Север')
+    eLong   = FloatField(label='Долгота-Восток')
+    eLat    = FloatField(label='Широта-Юг')
 
 def AnalysParamForm_from_builder(bands_info={}):
     coords_info = bands_info['coords']
@@ -280,7 +280,9 @@ class Band:
         return buf
     
     def get_preview_hist(self):
-        ban = self.read_band_data().reshape(-1)
+        down, left = self.get_pixel((float(request.args.get('eLat')), float(request.args.get('sLong'))))
+        up, right = self.get_pixel((float(request.args.get('sLat')), float(request.args.get('eLong'))))
+        ban = self.read_band_data()[up:down, left:right].reshape(-1)
         h_max = float(request.args.get('maxVal'))
         h_min = float(request.args.get('minVal'))
         h_ban = ban[(~np.isnan(ban)) & (ban <= h_max) & (ban >= h_min)]
@@ -313,7 +315,7 @@ class Dim:
         ans['coords'] = list(self.bands.values())[0].get_coords()
         return ans
 
-    def get_band_names(self):
+    def get_band_names(self) -> list[str]:
         return list(self.bands.keys())[::-1]
     
     def get_band(self, name) -> Band:
@@ -341,7 +343,7 @@ def uploadRawFile():
                 app.instance_path, 'raw_data', str(rd.id), filename
             ))
         if rd.status != "Ready":
-            compute_gpt(db, rd)
+            compute_gpt(rd)
         return redirect(url_for('analytics', rawdata_id=rd.id))
     return render_template('uploadData.html', form=form)
 
@@ -409,7 +411,7 @@ def process_request(form, rd: RawData):
 def get_path(p1, p2):
     # https://prog-cpp.ru/brezenham/
     path = [p1]
-    x1,y1,x2,y2 = *p1, *p2
+    x1, y1, x2, y2 = *p1, *p2
     A = y2 - y1
     B = x1 - x2
     sign = 1 if abs(A) > abs(B) else -1
@@ -444,10 +446,10 @@ def get_path(p1, p2):
                 f -= A * signa
                 x -= signb
             y += signa
-            path.append((x,y))
+            path.append((x, y))
     return path
 
-def compute_gpt(db, rd):
+def compute_gpt(rd):
     rd.status = "Proccessing"
     db.session.commit()
     print("Start processing")
@@ -457,6 +459,7 @@ def compute_gpt(db, rd):
     ofile_path = os.path.join(
         _basedir, "instance/raw_data", str(rd.id), rd.filename+".dim"
         )
+    rd.dim_path = ofile_path
     graph_path = os.path.join(_basedir, "graph.xml")
     print('Start subprocess')
     process = subprocess.run(
@@ -466,17 +469,17 @@ def compute_gpt(db, rd):
               f"-Pofile={ofile_path}",],
                 capture_output=True)
     # print(process, process.stderr, process.stdout)
-    if "Error" in str(process.stderr):
-        rd.status = "Error GPT"
-        return
+    
     if "done" in str(process.stdout):
         rd.info = json.dumps(Dim(ofile_path).get_bands_info())
         rd.status = "Ready"
         print("Subprocess done successfully")
+    elif "Error" in str(process.stderr):
+        rd.status = "Error GPT"
     else:
         print(process.stdout, process.stderr, sep='\n')
         rd.status = "Error while processing"
-    rd.dim_path = ofile_path
+    
     db.session.commit()
     print("End processing")
 
